@@ -1,12 +1,15 @@
-use std::path::{PathBuf, Path};
-use std::process::Command;
 use log::*;
+use std::env::{current_exe, set_current_dir};
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
-fn main() {
+fn main() -> io::Result<()> {
 	if std::env::var_os("RUST_LOG").is_none() {
 		std::env::set_var("RUST_LOG", "minecraft_runner=info,warn,error");
 	}
 	env_logger::init();
+	set_current_dir(current_exe()?.parent().unwrap())?;
 
 	let java = match find_java() {
 		Some(v) => v,
@@ -26,7 +29,31 @@ fn main() {
 	let sender = rivatiker::start_state_setter(rivatiker::State::NoSystemSleep);
 
 	let result = Command::new(&java)
-		.args(&["-Xmx6G", "-Xms1G", "-jar", "server.jar", "nogui"])
+		.args(&[
+			"-Xmx6G",
+			"-Xms1G",
+			//"-XX:+UseG1GC",
+			//"-XX:+ParallelRefProcEnabled",
+			//"-XX:MaxGCPauseMillis=200",
+			//"-XX:+UnlockExperimentalVMOptions",
+			//"-XX:+DisableExplicitGC",
+			//"-XX:+AlwaysPreTouch",
+			//"-XX:G1NewSizePercent=30",
+			//"-XX:G1MaxNewSizePercent=40",
+			//"-XX:G1HeapRegionSize=8M",
+			//"-XX:G1ReservePercent=20",
+			//"-XX:G1HeapWastePercent=5",
+			//"-XX:G1MixedGCCountTarget=4",
+			//"-XX:InitiatingHeapOccupancyPercent=15",
+			//"-XX:G1MixedGCLiveThresholdPercent=90",
+			//"-XX:G1RSetUpdatingPauseTimePercent=5",
+			//"-XX:SurvivorRatio=32",
+			//"-XX:+PerfDisableSharedMem",
+			//"-XX:MaxTenuringThreshold=1",
+			"-jar",
+			"server.jar",
+			"nogui",
+		])
 		.spawn()
 		.unwrap()
 		.wait();
@@ -38,6 +65,8 @@ fn main() {
 
 	#[cfg(windows)]
 	sender.send(rivatiker::State::Default).unwrap();
+
+	Ok(())
 }
 
 #[cfg(not(windows))]
@@ -68,8 +97,16 @@ fn find_java() -> Option<PathBuf> {
 	let x86_program_files = winutils::get_known_folder(&FOLDERID_ProgramFilesX86)
 		.unwrap_or_else(|| String::from(r"C:\Progam Files (x86)"));
 
-	let bundled_jre: PathBuf = [&x86_program_files, "Minecraft Launcher", "runtime", "jre-x64", "bin", JAVA]
-		.iter().collect();
+	let bundled_jre: PathBuf = [
+		&x86_program_files,
+		"Minecraft Launcher",
+		"runtime",
+		"jre-x64",
+		"bin",
+		JAVA,
+	]
+	.iter()
+	.collect();
 
 	find_java_in(&bundled_jre)
 }
@@ -94,11 +131,7 @@ fn find_java_in(place: &Path) -> Option<PathBuf> {
 
 #[cfg(windows)]
 mod winutils {
-	use winapi::{
-		um::shlobj::*,
-		ctypes::c_void,
-		shared::guiddef::GUID,
-	};
+	use winapi::{ctypes::c_void, shared::guiddef::GUID, um::shlobj::*};
 
 	pub fn get_known_folder(folder_id: &GUID) -> Option<String> {
 		let mut path: *mut u16 = std::ptr::null_mut();
