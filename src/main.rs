@@ -1,15 +1,21 @@
+use anyhow::Result;
 use log::*;
 use std::env::{current_exe, set_current_dir};
-use std::io;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn main() -> io::Result<()> {
+mod find_jar;
+
+use find_jar::*;
+
+fn main() -> Result<()> {
 	if std::env::var_os("RUST_LOG").is_none() {
 		std::env::set_var("RUST_LOG", "minecraft_runner=info,warn,error");
 	}
 	env_logger::init();
 	set_current_dir(current_exe()?.parent().unwrap())?;
+	let current_dir = std::env::current_dir()?;
 
 	let java = match find_java() {
 		Some(v) => v,
@@ -27,6 +33,30 @@ fn main() -> io::Result<()> {
 
 	#[cfg(windows)]
 	let sender = rivatiker::start_state_setter(rivatiker::State::NoSystemSleep);
+
+	let server_jar = find_server_jar(&current_dir)?;
+
+	let server_jar = match server_jar {
+		FindServerJar::ServerJar(path) => path,
+		FindServerJar::OneUnknownJar(path) => {
+			info!("Trying to launch the server using \"{}\"", path.display());
+			path
+		}
+		FindServerJar::MultipleJars(paths) => {
+			let chosen_jar = ask_which_jar_to_use(&paths)?;
+			info!("Using \"{}\" to launch the server", chosen_jar.display());
+			chosen_jar
+		}
+		FindServerJar::None => {
+			anyhow::bail!(
+				"No server jars found laying around in the current directory (\"{}\")",
+				current_dir.display()
+			);
+		}
+	};
+
+	let server_jar = server_jar.file_name().and_then(OsStr::to_str).unwrap();
+	info!("Stripped the jar path a filename: \"{}\"", server_jar);
 
 	let result = Command::new(&java)
 		.args(&[
@@ -53,7 +83,7 @@ fn main() -> io::Result<()> {
 			//"-XX:MaxTenuringThreshold=1",
 			"-server",
 			"-jar",
-			"server.jar",
+			server_jar,
 			"nogui",
 		])
 		.spawn()
