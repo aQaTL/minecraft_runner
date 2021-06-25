@@ -48,11 +48,12 @@ pub fn ask_which_jar_to_use(jars: &[PathBuf]) -> io::Result<PathBuf> {
 			.unwrap_or_default()
 	});
 
-	let server_jar_filter: Box<dyn for<'r, 's> FnMut(&'r (usize, &'s PathBuf)) -> bool> =
-		match &server_jar {
-			Some((server_jar_idx, _)) => Box::new(move |(idx, _)| idx != server_jar_idx),
-			None => Box::new(|_| true),
-		};
+	type ServerJarFilterClosure = dyn for<'r, 's> FnMut(&'r (usize, &'s PathBuf)) -> bool;
+
+	let server_jar_filter: Box<ServerJarFilterClosure> = match server_jar {
+		Some((server_jar_idx, ref _thing)) => Box::new(move |(idx, _)| *idx != server_jar_idx),
+		None => Box::new(move |_| true),
+	};
 
 	info!("Multiple jars found: ");
 
