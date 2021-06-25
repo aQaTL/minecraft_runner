@@ -6,8 +6,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod find_jar;
+mod webserver;
 
 use find_jar::*;
+use webserver::*;
 
 fn main() -> Result<()> {
 	if std::env::var_os("RUST_LOG").is_none() {
@@ -58,7 +60,7 @@ fn main() -> Result<()> {
 	let server_jar = server_jar.file_name().and_then(OsStr::to_str).unwrap();
 	info!("Stripped the jar path a filename: \"{}\"", server_jar);
 
-	let result = Command::new(&java)
+	let mut minecraft_process = Command::new(&java)
 		.args(&[
 			"-Xmx16G",
 			"-Xms1G",
@@ -87,10 +89,14 @@ fn main() -> Result<()> {
 			"nogui",
 		])
 		.spawn()
-		.unwrap()
-		.wait();
+		.unwrap();
 
-	match result {
+	if false {
+		let server_stdin = minecraft_process.stdin.take().unwrap();
+		start_web_server(server_stdin, "localhost:8080");
+	}
+
+	match minecraft_process.wait() {
 		Ok(status) => info!("Minecraft exited with status: {}", status),
 		Err(e) => error!("Minecraft exited with error: {:?}", e),
 	}
