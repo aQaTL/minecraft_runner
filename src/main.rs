@@ -4,12 +4,24 @@ use std::env::{current_exe, set_current_dir};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use structopt::StructOpt;
 
 mod find_jar;
+#[cfg(target_feature = "webserver")]
 mod webserver;
 
 use find_jar::*;
+#[cfg(target_feature = "webserver")]
 use webserver::*;
+
+#[derive(Debug, StructOpt)]
+#[structopt(name = "minecraft_runner", author = "aQaTL")]
+struct Opt {
+	#[structopt(long, default_value = "1GiB")]
+	min: human_size::SpecificSize,
+	#[structopt(long, default_value = "16GiB")]
+	max: human_size::SpecificSize,
+}
 
 fn main() -> Result<()> {
 	if std::env::var_os("RUST_LOG").is_none() {
@@ -18,6 +30,17 @@ fn main() -> Result<()> {
 	env_logger::init();
 	set_current_dir(current_exe()?.parent().unwrap())?;
 	let current_dir = std::env::current_dir()?;
+
+	let opt: Opt = Opt::from_args();
+
+	let min_jvm_size = opt.min.into::<human_size::Mebibyte>().value().floor() as u64;
+	let min_jvm_size = format!("{}M", min_jvm_size);
+
+	let max_jvm_size = opt.max.into::<human_size::Mebibyte>().value().floor() as u64;
+	let max_jvm_size = format!("{}M", max_jvm_size);
+
+	info!("Min JVM size: {}", min_jvm_size);
+	info!("Max JVM size: {}", max_jvm_size);
 
 	let java = match find_java() {
 		Some(v) => v,
@@ -62,8 +85,8 @@ fn main() -> Result<()> {
 
 	let mut minecraft_process = Command::new(&java)
 		.args(&[
-			"-Xmx16G",
-			"-Xms1G",
+			&format!("-Xmx{}", max_jvm_size),
+			&format!("-Xms{}", min_jvm_size),
 			"-Dsun.rmi.dgc.server.gcInterval=2147483646",
 			"-XX:+UseG1GC",
 			"-XX:+ParallelRefProcEnabled",
@@ -91,7 +114,8 @@ fn main() -> Result<()> {
 		.spawn()
 		.unwrap();
 
-	if false {
+	#[cfg(target_feature = "webserver")]
+	{
 		let server_stdin = minecraft_process.stdin.take().unwrap();
 		start_web_server(server_stdin, "localhost:8080");
 	}
