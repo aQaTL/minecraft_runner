@@ -1,8 +1,9 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::*;
 use nom::character::complete::{digit1, space0};
 use nom::combinator::map_res;
 use nom::sequence::preceded;
+use serde::{Deserialize, Serialize};
 use std::io;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
@@ -11,10 +12,11 @@ pub enum FindServerJar {
 	ServerJar(PathBuf),
 	OneUnknownJar(PathBuf),
 	MultipleJars(Vec<PathBuf>),
+	PreferredJar(PathBuf, Vec<PathBuf>),
 	None,
 }
 
-pub fn find_server_jar(root: &Path) -> io::Result<FindServerJar> {
+pub fn find_server_jar(root: &Path) -> Result<FindServerJar> {
 	let mut jars: Vec<PathBuf> = std::fs::read_dir(root)?
 		.filter_map(|entry| entry.ok())
 		.map(|entry| entry.path())
@@ -24,6 +26,29 @@ pub fn find_server_jar(root: &Path) -> io::Result<FindServerJar> {
 
 	if jars.is_empty() {
 		return Ok(FindServerJar::None);
+	}
+
+	// See if there's a previously set jar preference that exists
+	match read_config(root) {
+		Ok(config) => {
+			if let Some(preferred_jar) = jars
+				.iter()
+				.find(|jar| jar.file_name() == config.jar_preference.file_name())
+				.map(ToOwned::to_owned)
+			{
+				return Ok(FindServerJar::PreferredJar(preferred_jar, jars));
+			}
+		}
+		Err(e)
+			if e.downcast_ref::<std::io::Error>()
+				.map(|io_err| io_err.kind() == std::io::ErrorKind::NotFound)
+				.unwrap_or_default() =>
+		{
+			()
+		}
+		Err(e) => {
+			warn!("Failed to read config: {:?}.", e);
+		}
 	}
 
 	if jars.len() == 1 {
@@ -119,6 +144,43 @@ fn parse_number_in_range(number_input: &str, range: RangeInclusive<usize>) -> Re
 	}
 
 	Ok(number)
+}
+
+const CONFIG_FILENAME: &str = "minecraft_runner_config.ron";
+
+#[derive(Serialize, Deserialize, Default)]
+struct MinecraftRunnerConfig {
+	jar_preference: PathBuf,
+}
+
+fn read_config(working_directory: &Path) -> Result<MinecraftRunnerConfig> {
+	let config_path = working_directory.join(CONFIG_FILENAME);
+	let str = std::fs::read_to_string(&config_path)
+		.with_context(|| format!("Path: {:?}", config_path))?;
+	let config: MinecraftRunnerConfig = ron::from_str(&str)?;
+	Ok(config)
+}
+
+pub fn save_jar_preference(jar: &Path, working_directory: &Path) -> Result<()> {
+	let mut config = match read_config(working_directory) {
+		Ok(v) => v,
+		Err(e)
+			if e.downcast_ref::<std::io::Error>()
+				.map(|io_err| io_err.kind() == std::io::ErrorKind::NotFound)
+				.unwrap_or_default() =>
+		{
+			MinecraftRunnerConfig::default()
+		}
+		Err(e) => return Err(e.into()),
+	};
+	config.jar_preference = jar
+		.file_name()
+		.map(PathBuf::from)
+		.ok_or(anyhow::anyhow!("Failed to get the filename of {:?}.", jar))?;
+	let config_path = working_directory.join(CONFIG_FILENAME);
+	std::fs::write(&config_path, ron::to_string(&config)?)
+		.with_context(|| format!("Path: {:?}", config_path))?;
+	Ok(())
 }
 
 #[cfg(test)]

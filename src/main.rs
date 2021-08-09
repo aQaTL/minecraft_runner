@@ -10,7 +10,8 @@ mod find_jar;
 #[cfg(target_feature = "webserver")]
 mod webserver;
 
-use find_jar::*;
+use crate::find_jar::FindServerJar;
+
 #[cfg(target_feature = "webserver")]
 use webserver::*;
 
@@ -59,22 +60,32 @@ fn main() -> Result<()> {
 	#[cfg(windows)]
 	let sender = rivatiker::start_state_setter(rivatiker::State::NoSystemSleep);
 
-	let server_jar = find_server_jar(&current_dir)?;
+	let server_jar = find_jar::find_server_jar(&current_dir)?;
 
 	let server_jar = match server_jar {
 		FindServerJar::ServerJar(path) => path,
 		FindServerJar::OneUnknownJar(path) => {
-			info!("Trying to launch the server using \"{}\"", path.display());
+			info!("Trying to launch the server using \"{}\".", path.display());
 			path
 		}
 		FindServerJar::MultipleJars(paths) => {
-			let chosen_jar = ask_which_jar_to_use(&paths)?;
-			info!("Using \"{}\" to launch the server", chosen_jar.display());
+			let chosen_jar = find_jar::ask_which_jar_to_use(&paths)?;
+			if let Err(e) = find_jar::save_jar_preference(&chosen_jar, &current_dir) {
+				warn!("Failed to store chosen jar preference: {:?}.", e);
+			}
+			info!("Using \"{}\" to launch the server.", chosen_jar.display());
 			chosen_jar
+		}
+		FindServerJar::PreferredJar(preferred_jar, _jars) => {
+			info!(
+				"Using previously chosen jar: \"{}\".",
+				preferred_jar.display()
+			);
+			preferred_jar
 		}
 		FindServerJar::None => {
 			anyhow::bail!(
-				"No server jars found laying around in the current directory (\"{}\")",
+				"No server jars found laying around in the current directory (\"{}\").",
 				current_dir.display()
 			);
 		}

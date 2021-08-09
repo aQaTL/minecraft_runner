@@ -19,6 +19,8 @@ walkdir = "2.3.2"
 nom = "6.2.1"
 structopt = "0.3.21"
 human-size = "0.4.1"
+serde = { version = "1.0.127", features = ["derive"] }
+ron = "0.6.4"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.8", features = ["shlobj", "knownfolders", "combaseapi"] }
